@@ -1,0 +1,14 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  external-test-suite:
+    # Call the reusable workflow that lives in the test repo
+    uses: ahmedmatem/ZooWorld.Lib.Test/.github/workflows/test-library.yml@main
+    with:
+      lib_repo: ahmedmatem/ZooWorld.Lib
+      ref: ${{ github.sha }}   # test the exact commit that triggered this run
+    secrets: inherit            # lets the called workflow access needed repo permissions
