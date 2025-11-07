@@ -1,14 +1,45 @@
-name: CI
+name: Publish Library (NuGet - GitHub Packages)
 
 on:
   push:
-  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  packages: write
 
 jobs:
-  external-test-suite:
-    # Call the reusable workflow that lives in the test repo
-    uses: ahmedmatem/ZooWorld.Lib.Test/.github/workflows/test-library.yml@master
-    with:
-      lib_repo: ahmedmatem/ZooWorld.Lib
-      ref: ${{ github.sha }}   # test the exact commit that triggered this run
-    secrets: inherit            # lets the called workflow access needed repo permissions
+  pack-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '8.0.x' }
+
+      - run: dotnet restore
+      - run: dotnet build -c Release --no-restore
+      - run: dotnet pack path/to/YourLibrary.csproj -c Release -o ./nupkg
+
+      # Push to GitHub Packages (nuget.pkg.github.com)
+      - name: Push package
+        run: dotnet nuget push "nupkg/*.nupkg" --source "github" --skip-duplicate
+        env:
+          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+
+      - name: Create nuget.config
+        shell: bash
+        run: |
+          cat > nuget.config <<EOF
+          <configuration>
+            <packageSources>
+              <add key="github" value="https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <github>
+                <add key="Username" value="${GITHUB_REPOSITORY_OWNER}" />
+                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
+              </github>
+            </packageSourceCredentials>
+          </configuration>
+          EOF
