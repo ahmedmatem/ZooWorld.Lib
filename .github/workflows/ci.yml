@@ -1,45 +1,52 @@
-name: Publish Library (NuGet - GitHub Packages)
+name: Build & Test (with external tests)
 
 on:
   push:
-    branches: [ main ]
-
-permissions:
-  contents: read
-  packages: write
+    branches: [ master ]      # your default branch appears to be master
+  pull_request:
 
 jobs:
-  pack-and-push:
+  test:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: '8.0.x' }
+      - name: Checkout library repo
+        uses: actions/checkout@v4
 
-      - run: dotnet restore
-      - run: dotnet build -c Release --no-restore
-      - run: dotnet pack path/to/YourLibrary.csproj -c Release -o ./nupkg
+      - name: Checkout tests repo
+        uses: actions/checkout@v4
+        with:
+          repository: ahmedmatem/ZooWorld.Lib.Test
+          path: tests-repo
 
-      # Push to GitHub Packages (nuget.pkg.github.com)
-      - name: Push package
-        run: dotnet nuget push "nupkg/*.nupkg" --source "github" --skip-duplicate
-        env:
-          NUGET_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
 
-      - name: Create nuget.config
-        shell: bash
+      # Create a temporary solution and add both projects
+      - name: Create temp solution and add projects
         run: |
-          cat > nuget.config <<EOF
-          <configuration>
-            <packageSources>
-              <add key="github" value="https://nuget.pkg.github.com/${GITHUB_REPOSITORY_OWNER}/index.json" />
-            </packageSources>
-            <packageSourceCredentials>
-              <github>
-                <add key="Username" value="${GITHUB_REPOSITORY_OWNER}" />
-                <add key="ClearTextPassword" value="${{ secrets.GITHUB_TOKEN }}" />
-              </github>
-            </packageSourceCredentials>
-          </configuration>
-          EOF
+          dotnet new sln -n tmp
+          dotnet sln tmp.sln add ZooWorld.Lib.csproj
+          dotnet sln tmp.sln add tests-repo/ZooWorld.Lib.Test.csproj
+
+      # Ensure the test project references the library source (idempotent if it already does)
+      - name: Add ProjectReference from tests to library
+        run: dotnet add tests-repo/ZooWorld.Lib.Test.csproj reference ZooWorld.Lib.csproj
+
+      - name: Restore
+        run: dotnet restore tmp.sln
+
+      - name: Build (Release)
+        run: dotnet build tmp.sln -c Release --no-restore
+
+      - name: Test
+        run: dotnet test tests-repo/ZooWorld.Lib.Test.csproj -c Release --no-build --logger "trx;LogFileName=test-results.trx" --results-directory ./TestResults
+
+      - name: Upload Test Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: TestResults
+          path: TestResults
